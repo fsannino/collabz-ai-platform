@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -24,7 +25,13 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def run_retrieval(collection: str, question: str, mode: str, top_k: int, per_collection: int) -> dict:
+def run_retrieval(
+    collection: str,
+    question: str,
+    mode: str,
+    top_k: int,
+    per_collection: int,
+) -> dict:
     command = [
         sys.executable,
         "-m",
@@ -41,9 +48,23 @@ def run_retrieval(collection: str, question: str, mode: str, top_k: int, per_col
         str(per_collection),
         "--json",
     ]
-    completed = subprocess.run(command, capture_output=True, text=True, check=False)
+
+    environment = os.environ.copy()
+    environment["PYTHONIOENCODING"] = "utf-8"
+    environment["PYTHONUTF8"] = "1"
+
+    completed = subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        env=environment,
+        check=False,
+    )
     if completed.returncode != 0:
         raise RuntimeError(completed.stderr.strip() or completed.stdout.strip())
+
     start = completed.stdout.find("{")
     if start < 0:
         raise RuntimeError("Saída JSON não encontrada no rag-retrieve.")
