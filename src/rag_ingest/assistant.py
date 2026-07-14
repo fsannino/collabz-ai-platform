@@ -9,6 +9,7 @@ import requests
 
 from rag_ingest.config import CollectionConfig, Settings, load_collections
 from rag_ingest.context_builder import ContextBuilder
+from rag_ingest.grounding import validate_listed_entities
 from rag_ingest.metadata_filter import MetadataFilter
 from rag_ingest.models import RagAnswer
 from rag_ingest.prompt_manager import PromptManager
@@ -39,6 +40,9 @@ class RagAssistant:
             float(raw_max_distance) if raw_max_distance else None
         )
         lexical_weight = float(os.getenv("RAG_LEXICAL_WEIGHT", "250"))
+        self.strict_grounding = os.getenv(
+            "RAG_STRICT_GROUNDING", "true"
+        ).strip().lower() in {"1", "true", "yes", "on"}
 
         self._retriever = VectorRetriever(settings)
         self._reranker = DiversityReranker(
@@ -90,10 +94,20 @@ class RagAssistant:
             context=context,
             style=style,
         )
-        answer = self._generate(prompt)
+        answer = self._generate(prompt).strip()
+
+        if self.strict_grounding:
+            valid, unsupported = validate_listed_entities(answer, context)
+            if not valid:
+                names = ", ".join(unsupported)
+                answer = (
+                    "Não encontrei evidência documental suficiente para "
+                    "responder com segurança. A resposta gerada continha "
+                    f"entidades não presentes literalmente nas fontes: {names}."
+                )
 
         return RagAnswer(
-            answer=answer.strip(),
+            answer=answer,
             model=self.llm_model,
             chunks=tuple(chunks),
         )
