@@ -8,6 +8,7 @@ import chromadb
 
 from rag_ingest.config import CollectionConfig, Settings
 from rag_ingest.ingest import OllamaEmbedder
+from rag_ingest.metadata_filter import MetadataFilter
 from rag_ingest.models import RetrievedChunk
 
 
@@ -28,9 +29,11 @@ class VectorRetriever:
         question: str,
         collections: Iterable[CollectionConfig],
         candidates_per_collection: int,
+        metadata_filter: MetadataFilter | None = None,
     ) -> list[RetrievedChunk]:
         query_embedding = self._embedder.embed(question)
         hits: list[RetrievedChunk] = []
+        where = metadata_filter.to_chroma_where() if metadata_filter else None
 
         for config in collections:
             try:
@@ -42,11 +45,15 @@ class VectorRetriever:
             if count == 0:
                 continue
 
-            result = collection.query(
-                query_embeddings=[query_embedding],
-                n_results=min(candidates_per_collection, count),
-                include=["documents", "metadatas", "distances"],
-            )
+            query_args = {
+                "query_embeddings": [query_embedding],
+                "n_results": min(candidates_per_collection, count),
+                "include": ["documents", "metadatas", "distances"],
+            }
+            if where:
+                query_args["where"] = where
+
+            result = collection.query(**query_args)
 
             documents = (result.get("documents") or [[]])[0]
             metadatas = (result.get("metadatas") or [[]])[0]
@@ -66,12 +73,17 @@ class VectorRetriever:
                     or metadata.get("source")
                     or "fonte desconhecida"
                 )
+                source = str(source)
+
+                if metadata_filter and not metadata_filter.matches(source, metadata):
+                    continue
+
                 hits.append(
                     RetrievedChunk(
                         collection_key=config.key,
                         distance=float(distance),
                         document=document.strip(),
-                        source=str(source),
+                        source=source,
                         metadata=metadata,
                     )
                 )
