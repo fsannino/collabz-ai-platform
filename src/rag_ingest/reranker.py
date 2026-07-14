@@ -13,33 +13,33 @@ from rag_ingest.models import RetrievedChunk
 _STOPWORDS = {
     "a", "as", "o", "os", "de", "da", "das", "do", "dos", "e", "em",
     "um", "uma", "para", "por", "com", "que", "quais", "qual", "liste",
-    "cite", "tres", "mencionada", "mencionadas", "mencionado",
-    "mencionados", "explicitamente", "nao", "sao", "ser", "apareca",
-    "aparecam", "nome", "nomes", "trecho", "trechos",
+    "cite", "tres", "três", "mencionada", "mencionadas", "mencionado",
+    "mencionados", "explicitamente", "nao", "não", "nome", "apareca",
+    "apareça", "literalmente", "trecho", "trechos", "cujo", "cujos",
 }
 
-# Canonicaliza variantes em português/inglês e singular/plural.
-_TERM_ALIASES = {
-    "associacao": "organization",
-    "associacoes": "organization",
-    "association": "organization",
-    "associations": "organization",
-    "organizacao": "organization",
+_ASSOCIATION_INTENT_TERMS = {
+    "associacao", "associacoes", "association", "associations",
+    "organizacao", "organizacoes", "organization", "organizations",
+}
+
+_ASSOCIATION_ANCHORS = {
+    "association", "associacao", "associacoes", "confederacao",
+    "confederation", "federacao", "federation", "society", "sociedade",
+    "institute", "instituto", "council", "conselho", "chapter", "capitulo",
+    "foundation", "fundacao", "guild", "ordem", "pmi", "acmp", "ccmp",
+}
+
+_CANONICAL_TERMS = {
+    "associacoes": "association",
+    "associacao": "association",
+    "associations": "association",
     "organizacoes": "organization",
-    "organisation": "organization",
-    "organisations": "organization",
+    "organizacao": "organization",
     "organizations": "organization",
-    "confederacao": "organization",
-    "confederacoes": "organization",
-    "confederation": "organization",
-    "confederations": "organization",
-    "federacao": "organization",
-    "federacoes": "organization",
-    "federation": "organization",
-    "federations": "organization",
-    "instituicao": "institution",
-    "instituicoes": "institution",
-    "institutions": "institution",
+    "instituicoes": "institute",
+    "instituicao": "institute",
+    "institutions": "institute",
 }
 
 
@@ -64,10 +64,15 @@ class DiversityReranker:
         source_counts: dict[str, int] = defaultdict(int)
         seen_content: set[str] = set()
         query_terms = self._terms(question)
+        association_intent = bool(query_terms & {"association", "organization"})
 
         ranked = sorted(
             chunks,
-            key=lambda item: self._score(item, query_terms),
+            key=lambda item: self._score(
+                item,
+                query_terms=query_terms,
+                association_intent=association_intent,
+            ),
         )
 
         for chunk in ranked:
@@ -91,11 +96,13 @@ class DiversityReranker:
 
         return selected
 
-    def _score(self, chunk: RetrievedChunk, query_terms: set[str]) -> float:
-        """Menor é melhor: distância vetorial menos bônus lexical."""
-        if not query_terms:
-            return chunk.distance
-
+    def _score(
+        self,
+        chunk: RetrievedChunk,
+        query_terms: set[str],
+        association_intent: bool,
+    ) -> float:
+        """Menor é melhor: distância vetorial menos bônus lexical e de intenção."""
         searchable = " ".join(
             [
                 chunk.document,
@@ -104,9 +111,19 @@ class DiversityReranker:
             ]
         )
         document_terms = self._terms(searchable)
+
         overlap = len(query_terms & document_terms)
         coverage = overlap / max(1, len(query_terms))
-        return chunk.distance - (coverage * self.lexical_weight)
+        score = chunk.distance - (coverage * self.lexical_weight)
+
+        if association_intent:
+            anchor_overlap = len(document_terms & _ASSOCIATION_ANCHORS)
+            if anchor_overlap:
+                score -= min(anchor_overlap, 3) * (self.lexical_weight * 0.75)
+            else:
+                score += self.lexical_weight * 0.5
+
+        return score
 
     @staticmethod
     def _terms(text: str) -> set[str]:
@@ -115,13 +132,13 @@ class DiversityReranker:
             character for character in normalized
             if not unicodedata.combining(character)
         )
-        raw_tokens = set(re.findall(r"[a-z0-9_]{3,}", ascii_text))
-        tokens = {
-            _TERM_ALIASES.get(token, token)
-            for token in raw_tokens
+        tokens = set(re.findall(r"[a-z0-9_]{3,}", ascii_text))
+        canonical = {
+            _CANONICAL_TERMS.get(token, token)
+            for token in tokens
             if token not in _STOPWORDS
         }
-        return tokens
+        return canonical
 
     @staticmethod
     def _fingerprint(text: str) -> str:
