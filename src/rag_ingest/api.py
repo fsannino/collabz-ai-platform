@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 
 from rag_ingest.assistant import RagAssistant
 from rag_ingest.config import Settings
+from rag_ingest.metadata_filter import MetadataFilter
 
 
 def load_environment() -> None:
@@ -19,7 +20,22 @@ def load_environment() -> None:
 
 load_environment()
 
-app = FastAPI(title="CollabZ AI Core", version="0.2.0")
+app = FastAPI(title="CollabZ AI Core", version="0.3.0")
+
+
+class MetadataFilterRequest(BaseModel):
+    exact: dict[str, Any] = Field(default_factory=dict)
+    source_contains: str | None = None
+    folder_contains: str | None = None
+    file_extension: str | None = None
+
+    def to_domain(self) -> MetadataFilter:
+        return MetadataFilter(
+            exact=self.exact,
+            source_contains=self.source_contains,
+            folder_contains=self.folder_contains,
+            file_extension=self.file_extension,
+        )
 
 
 class AskRequest(BaseModel):
@@ -27,10 +43,11 @@ class AskRequest(BaseModel):
     collections: list[str] | None = None
     use_all: bool = False
     top_k: int = Field(default=8, ge=1, le=30)
-    per_collection: int = Field(default=5, ge=1, le=20)
+    per_collection: int = Field(default=5, ge=1, le=50)
     style: str = "normal"
     model: str | None = None
     show_sources: bool = True
+    filters: MetadataFilterRequest | None = None
 
 
 class ChatMessage(BaseModel):
@@ -75,6 +92,9 @@ def ask(payload: AskRequest) -> dict[str, Any]:
             top_k=payload.top_k,
             per_collection=payload.per_collection,
             style=payload.style,
+            metadata_filter=(
+                payload.filters.to_domain() if payload.filters else None
+            ),
         )
     except Exception as error:
         raise HTTPException(status_code=500, detail=str(error)) from error
@@ -88,6 +108,7 @@ def ask(payload: AskRequest) -> dict[str, Any]:
                     "collection": chunk.collection_key,
                     "source": chunk.source,
                     "distance": chunk.distance,
+                    "metadata": chunk.metadata,
                 }
             )
 
