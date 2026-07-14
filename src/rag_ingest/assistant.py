@@ -1,33 +1,20 @@
-"""Serviço central de RAG: busca, contexto, resposta e fontes."""
+"""Orquestrador central do RAG CollabZ AI Core v2."""
 
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
 
-import chromadb
 import requests
 
 from rag_ingest.config import CollectionConfig, Settings, load_collections
-from rag_ingest.ingest import OllamaEmbedder
-
-
-@dataclass(frozen=True)
-class RetrievedChunk:
-    collection_key: str
-    distance: float
-    document: str
-    source: str
-    metadata: dict
-
-
-@dataclass(frozen=True)
-class RagAnswer:
-    answer: str
-    model: str
-    chunks: tuple[RetrievedChunk, ...]
+from rag_ingest.context_builder import ContextBuilder
+from rag_ingest.grounding import validate_listed_entities
+from rag_ingest.metadata_filter import MetadataFilter
+from rag_ingest.models import RagAnswer
+from rag_ingest.prompt_manager import PromptManager
+from rag_ingest.reranker import DiversityReranker
+from rag_ingest.retriever import VectorRetriever
 
 
 class RagAssistant:
@@ -39,19 +26,34 @@ class RagAssistant:
     ) -> None:
         self.settings = settings
         self.collections = load_collections(collections_path)
-        self.llm_model = llm_model or os.getenv("LLM_MODEL", "qwen3:4b")
+        self.llm_model = llm_model or os.getenv("LLM_MODEL", "llama3.2:1b")
         self.temperature = float(os.getenv("LLM_TEMPERATURE", "0.1"))
         self.timeout = int(os.getenv("LLM_TIMEOUT_SECONDS", "900"))
+        self.max_chunks_per_source = int(
+            os.getenv("RAG_MAX_CHUNKS_PER_SOURCE", "1")
+        )
+        self.max_context_characters = int(
+            os.getenv("RAG_MAX_CONTEXT_CHARACTERS", "12000")
+        )
+        raw_max_distance = os.getenv("RAG_MAX_DISTANCE", "").strip()
+        self.max_distance = (
+            float(raw_max_distance) if raw_max_distance else None
+        )
+        lexical_weight = float(os.getenv("RAG_LEXICAL_WEIGHT", "250"))
+        self.strict_grounding = os.getenv(
+            "RAG_STRICT_GROUNDING", "true"
+        ).strip().lower() in {"1", "true", "yes", "on"}
 
-        self._embedder = OllamaEmbedder(
-            base_url=settings.ollama_url,
-            model=settings.embed_model,
-            timeout_seconds=settings.ollama_timeout_seconds,
+        self._retriever = VectorRetriever(settings)
+        self._reranker = DiversityReranker(
+            max_chunks_per_source=self.max_chunks_per_source,
+            max_distance=self.max_distance,
+            lexical_weight=lexical_weight,
         )
-        self._chroma = chromadb.HttpClient(
-            host=settings.chroma_host,
-            port=settings.chroma_port,
+        self._context_builder = ContextBuilder(
+            max_characters=self.max_context_characters
         )
+        self._prompt_manager = PromptManager()
 
     def answer(
         self,
@@ -61,89 +63,54 @@ class RagAssistant:
         top_k: int = 8,
         per_collection: int = 5,
         style: str = "normal",
+        metadata_filter: MetadataFilter | None = None,
     ) -> RagAnswer:
         selected = self._select_collections(collection_keys, use_all)
-        chunks = self.retrieve(
-            question,
-            selected,
-            top_k,
-            per_collection,
+        candidates = self._retriever.search(
+            question=question,
+            collections=selected,
+            candidates_per_collection=max(per_collection, top_k),
+            metadata_filter=metadata_filter,
+        )
+        chunks = self._reranker.rank(
+            candidates,
+            limit=top_k,
+            question=question,
         )
 
         if not chunks:
             return RagAnswer(
                 answer=(
-                    "Não encontrei conteúdo suficiente nas coleções "
-                    "selecionadas para responder com segurança."
+                    "Não encontrei evidência documental suficiente para "
+                    "responder com segurança."
                 ),
                 model=self.llm_model,
                 chunks=(),
             )
 
-        prompt = self._build_prompt(question, chunks, style)
-        answer = self._generate(prompt)
+        context = self._context_builder.build(chunks)
+        prompt = self._prompt_manager.build(
+            question=question,
+            context=context,
+            style=style,
+        )
+        answer = self._generate(prompt).strip()
+
+        if self.strict_grounding:
+            valid, _unsupported = validate_listed_entities(answer, context)
+            if not valid:
+                answer = (
+                    "Não encontrei evidência documental suficiente para "
+                    "responder com segurança. A resposta gerada foi descartada "
+                    "porque continha entidades não confirmadas literalmente "
+                    "nas fontes recuperadas."
+                )
+
         return RagAnswer(
-            answer=answer.strip(),
+            answer=answer,
             model=self.llm_model,
             chunks=tuple(chunks),
         )
-
-    def retrieve(
-        self,
-        question: str,
-        selected: Iterable[CollectionConfig],
-        top_k: int,
-        per_collection: int,
-    ) -> list[RetrievedChunk]:
-        query_embedding = self._embedder.embed(question)
-        hits: list[RetrievedChunk] = []
-
-        for config in selected:
-            try:
-                collection = self._chroma.get_collection(
-                    config.collection_name
-                )
-            except Exception:
-                continue
-
-            count = collection.count()
-            if count == 0:
-                continue
-
-            result = collection.query(
-                query_embeddings=[query_embedding],
-                n_results=min(per_collection, count),
-                include=["documents", "metadatas", "distances"],
-            )
-
-            documents = (result.get("documents") or [[]])[0]
-            metadatas = (result.get("metadatas") or [[]])[0]
-            distances = (result.get("distances") or [[]])[0]
-
-            for document, metadata, distance in zip(
-                documents,
-                metadatas,
-                distances,
-                strict=False,
-            ):
-                metadata = metadata or {}
-                source = (
-                    metadata.get("source_absolute")
-                    or metadata.get("source")
-                    or "fonte desconhecida"
-                )
-                hits.append(
-                    RetrievedChunk(
-                        collection_key=config.key,
-                        distance=float(distance),
-                        document=document,
-                        source=str(source),
-                        metadata=metadata,
-                    )
-                )
-
-        hits.sort(key=lambda item: item.distance)
-        return hits[:top_k]
 
     def _select_collections(
         self,
@@ -170,54 +137,6 @@ class RagAssistant:
             )
 
         return [enabled[key] for key in requested]
-
-    def _build_prompt(
-        self,
-        question: str,
-        chunks: list[RetrievedChunk],
-        style: str,
-    ) -> str:
-        styles = {
-            "normal": "Responda de forma clara, direta e estruturada.",
-            "executiva": "Responda de forma executiva e objetiva.",
-            "tecnica": "Responda tecnicamente, com detalhes relevantes.",
-            "academica": (
-                "Responda em estilo acadêmico, distinguindo evidência "
-                "de inferência."
-            ),
-            "resumo": "Produza um resumo curto com os pontos essenciais.",
-        }
-        instruction = styles.get(style, styles["normal"])
-
-        context_parts = []
-        for index, chunk in enumerate(chunks, start=1):
-            context_parts.append(
-                f"[FONTE {index}]\n"
-                f"Coleção: {chunk.collection_key}\n"
-                f"Arquivo: {chunk.source}\n"
-                f"Trecho:\n{chunk.document.strip()}"
-            )
-
-        context = "\n\n".join(context_parts)
-
-        return f"""Você é o assistente privado da plataforma CollabZ AI.
-
-REGRAS:
-1. Responda somente com base no contexto fornecido.
-2. Não invente fatos, nomes, datas ou conclusões.
-3. Se o contexto for insuficiente, declare isso.
-4. Cite no corpo da resposta usando [Fonte 1], [Fonte 2] etc.
-5. Ao final, inclua uma seção "Fontes utilizadas".
-6. {instruction}
-
-PERGUNTA:
-{question}
-
-CONTEXTO:
-{context}
-
-RESPOSTA:
-"""
 
     def _generate(self, prompt: str) -> str:
         response = requests.post(
