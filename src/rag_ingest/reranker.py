@@ -18,11 +18,6 @@ _STOPWORDS = {
     "apareça", "literalmente", "trecho", "trechos", "cujo", "cujos",
 }
 
-_ASSOCIATION_INTENT_TERMS = {
-    "associacao", "associacoes", "association", "associations",
-    "organizacao", "organizacoes", "organization", "organizations",
-}
-
 _ASSOCIATION_ANCHORS = {
     "association", "associacao", "associacoes", "confederacao",
     "confederation", "federacao", "federation", "society", "sociedade",
@@ -49,10 +44,15 @@ class DiversityReranker:
         max_chunks_per_source: int = 1,
         max_distance: float | None = None,
         lexical_weight: float = 250.0,
+        near_duplicate_threshold: float = 0.88,
     ) -> None:
         self.max_chunks_per_source = max(1, max_chunks_per_source)
         self.max_distance = max_distance
         self.lexical_weight = max(0.0, lexical_weight)
+        self.near_duplicate_threshold = min(
+            1.0,
+            max(0.0, near_duplicate_threshold),
+        )
 
     def rank(
         self,
@@ -61,18 +61,13 @@ class DiversityReranker:
         question: str = "",
     ) -> list[RetrievedChunk]:
         selected: list[RetrievedChunk] = []
+        selected_terms: list[set[str]] = []
         source_counts: dict[str, int] = defaultdict(int)
         seen_content: set[str] = set()
-        query_terms = self._terms(question)
-        association_intent = bool(query_terms & {"association", "organization"})
 
         ranked = sorted(
             chunks,
-            key=lambda item: self._score(
-                item,
-                query_terms=query_terms,
-                association_intent=association_intent,
-            ),
+            key=lambda item: self.score(item, question),
         )
 
         for chunk in ranked:
@@ -83,11 +78,16 @@ class DiversityReranker:
             if fingerprint in seen_content:
                 continue
 
+            terms = self._terms(chunk.document)
+            if self._is_near_duplicate(terms, selected_terms):
+                continue
+
             source_key = chunk.normalized_source
             if source_counts[source_key] >= self.max_chunks_per_source:
                 continue
 
             seen_content.add(fingerprint)
+            selected_terms.append(terms)
             source_counts[source_key] += 1
             selected.append(chunk)
 
@@ -95,6 +95,16 @@ class DiversityReranker:
                 break
 
         return selected
+
+    def score(self, chunk: RetrievedChunk, question: str = "") -> float:
+        """Retorna o score final do reranker; quanto menor, melhor."""
+        query_terms = self._terms(question)
+        association_intent = bool(query_terms & {"association", "organization"})
+        return self._score(
+            chunk,
+            query_terms=query_terms,
+            association_intent=association_intent,
+        )
 
     def _score(
         self,
@@ -124,6 +134,23 @@ class DiversityReranker:
                 score += self.lexical_weight * 0.5
 
         return score
+
+    def _is_near_duplicate(
+        self,
+        terms: set[str],
+        selected_terms: list[set[str]],
+    ) -> bool:
+        if not terms or self.near_duplicate_threshold >= 1.0:
+            return False
+
+        for existing in selected_terms:
+            union = terms | existing
+            if not union:
+                continue
+            similarity = len(terms & existing) / len(union)
+            if similarity >= self.near_duplicate_threshold:
+                return True
+        return False
 
     @staticmethod
     def _terms(text: str) -> set[str]:

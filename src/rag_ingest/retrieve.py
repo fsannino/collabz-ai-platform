@@ -111,6 +111,7 @@ def main() -> None:
     )
     retrieve_seconds = perf_counter() - retrieve_started
 
+    reranker: DiversityReranker | None = None
     if args.no_reranker:
         chunks = candidates[: args.top_k]
     else:
@@ -124,6 +125,9 @@ def main() -> None:
                 else None
             ),
             lexical_weight=float(os.getenv("RAG_LEXICAL_WEIGHT", "250")),
+            near_duplicate_threshold=float(
+                os.getenv("RAG_NEAR_DUPLICATE_THRESHOLD", "0.88")
+            ),
         )
         chunks = reranker.rank(
             candidates,
@@ -132,6 +136,12 @@ def main() -> None:
         )
 
     total_seconds = perf_counter() - started
+
+    def final_score(chunk: Any) -> float:
+        if reranker is None:
+            return float(chunk.distance)
+        return float(reranker.score(chunk, args.question))
+
     payload = {
         "question": args.question,
         "candidate_count": len(candidates),
@@ -143,6 +153,7 @@ def main() -> None:
                 "rank": index,
                 "collection": chunk.collection_key,
                 "distance": chunk.distance,
+                "reranker_score": final_score(chunk),
                 "source": chunk.source,
                 "metadata": chunk.metadata,
                 "document": chunk.document,
@@ -174,6 +185,7 @@ def main() -> None:
         print("=" * 90)
         print(f"coleção={chunk.collection_key}")
         print(f"distância={chunk.distance:.6f}")
+        print(f"score_reranker={final_score(chunk):.6f}")
         print(f"fonte={chunk.source}")
         if args.show_metadata:
             print("metadados=" + json.dumps(
