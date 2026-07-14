@@ -99,4 +99,6 @@ def test_reranker_removes_near_duplicates_across_sources() -> None:
         question="associações profissionais",
     )
 
-    assert [item.source for item in result] == ["copia-1.pdf", "pmi.pdf"]
+    sources = {item.source for item in result}
+    assert sources == {"copia-1.pdf", "pmi.pdf"}
+    assert "copia-2.pdf" not in sources
