@@ -37,3 +37,13 @@ build/
 # Sistema operacional
 Thumbs.db
 .DS_Store
+
+# Índice lexical gerado automaticamente
+.indexes/
+
+# Bancos SQLite gerados localmente
+*.sqlite3
+*.sqlite3-shm
+*.sqlite3-wal
+
+reports/
