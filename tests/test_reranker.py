@@ -56,3 +56,47 @@ def test_reranker_prioritizes_lexical_overlap() -> None:
     )
 
     assert result[0].source == "associacao.pdf"
+
+
+def test_reranker_exposes_final_score() -> None:
+    reranker = DiversityReranker(lexical_weight=100.0)
+    relevant = chunk("acmp.pdf", 200.0, "ACMP professional association")
+    generic = chunk("generic.pdf", 180.0, "commercial companies")
+
+    assert reranker.score(
+        relevant,
+        "Quais associações profissionais são mencionadas?",
+    ) < reranker.score(
+        generic,
+        "Quais associações profissionais são mencionadas?",
+    )
+
+
+def test_reranker_removes_near_duplicates_across_sources() -> None:
+    reranker = DiversityReranker(
+        max_chunks_per_source=2,
+        near_duplicate_threshold=0.75,
+    )
+    result = reranker.rank(
+        [
+            chunk(
+                "copia-1.pdf",
+                1.0,
+                "ACMP oferece acesso ao centro de recursos e webinars aos associados",
+            ),
+            chunk(
+                "copia-2.pdf",
+                1.1,
+                "ACMP oferece acesso ao centro de recursos, webinars e benefícios aos associados",
+            ),
+            chunk(
+                "pmi.pdf",
+                1.2,
+                "PMI é uma associação profissional de gerenciamento de projetos",
+            ),
+        ],
+        limit=3,
+        question="associações profissionais",
+    )
+
+    assert [item.source for item in result] == ["copia-1.pdf", "pmi.pdf"]
