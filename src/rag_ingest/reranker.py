@@ -13,8 +13,33 @@ from rag_ingest.models import RetrievedChunk
 _STOPWORDS = {
     "a", "as", "o", "os", "de", "da", "das", "do", "dos", "e", "em",
     "um", "uma", "para", "por", "com", "que", "quais", "qual", "liste",
-    "cite", "tres", "três", "mencionada", "mencionadas", "mencionado",
-    "mencionados", "explicitamente", "nao", "não",
+    "cite", "tres", "mencionada", "mencionadas", "mencionado",
+    "mencionados", "explicitamente", "nao", "sao", "ser", "apareca",
+    "aparecam", "nome", "nomes", "trecho", "trechos",
+}
+
+# Canonicaliza variantes em português/inglês e singular/plural.
+_TERM_ALIASES = {
+    "associacao": "organization",
+    "associacoes": "organization",
+    "association": "organization",
+    "associations": "organization",
+    "organizacao": "organization",
+    "organizacoes": "organization",
+    "organisation": "organization",
+    "organisations": "organization",
+    "organizations": "organization",
+    "confederacao": "organization",
+    "confederacoes": "organization",
+    "confederation": "organization",
+    "confederations": "organization",
+    "federacao": "organization",
+    "federacoes": "organization",
+    "federation": "organization",
+    "federations": "organization",
+    "instituicao": "institution",
+    "instituicoes": "institution",
+    "institutions": "institution",
 }
 
 
@@ -90,8 +115,13 @@ class DiversityReranker:
             character for character in normalized
             if not unicodedata.combining(character)
         )
-        tokens = set(re.findall(r"[a-z0-9_]{3,}", ascii_text))
-        return {token for token in tokens if token not in _STOPWORDS}
+        raw_tokens = set(re.findall(r"[a-z0-9_]{3,}", ascii_text))
+        tokens = {
+            _TERM_ALIASES.get(token, token)
+            for token in raw_tokens
+            if token not in _STOPWORDS
+        }
+        return tokens
 
     @staticmethod
     def _fingerprint(text: str) -> str:
