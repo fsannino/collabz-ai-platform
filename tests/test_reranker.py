@@ -38,3 +38,21 @@ def test_reranker_applies_distance_limit() -> None:
     )
 
     assert [item.source for item in result] == ["a.pdf"]
+
+
+def test_reranker_prioritizes_lexical_overlap() -> None:
+    reranker = DiversityReranker(lexical_weight=250.0)
+    result = reranker.rank(
+        [
+            chunk("generico.pdf", 100.0, "empresas de tecnologia e varejo"),
+            chunk(
+                "associacao.pdf",
+                140.0,
+                "Association of Change Management Professionals e confederação",
+            ),
+        ],
+        limit=1,
+        question="Quais associações ou organizações são mencionadas?",
+    )
+
+    assert result[0].source == "associacao.pdf"
