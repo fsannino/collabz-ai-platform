@@ -34,6 +34,7 @@ rag-query = "rag_ingest.query:main"
 rag-status = "rag_ingest.status:main"
 rag-ask = "rag_ingest.ask:main"
 rag-retrieve = "rag_ingest.retrieve:main"
+rag-lexical-build = "rag_ingest.lexical_build:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
