@@ -38,11 +38,13 @@ class RagAssistant:
         self.max_distance = (
             float(raw_max_distance) if raw_max_distance else None
         )
+        lexical_weight = float(os.getenv("RAG_LEXICAL_WEIGHT", "250"))
 
         self._retriever = VectorRetriever(settings)
         self._reranker = DiversityReranker(
             max_chunks_per_source=self.max_chunks_per_source,
             max_distance=self.max_distance,
+            lexical_weight=lexical_weight,
         )
         self._context_builder = ContextBuilder(
             max_characters=self.max_context_characters
@@ -66,7 +68,11 @@ class RagAssistant:
             candidates_per_collection=max(per_collection, top_k),
             metadata_filter=metadata_filter,
         )
-        chunks = self._reranker.rank(candidates, limit=top_k)
+        chunks = self._reranker.rank(
+            candidates,
+            limit=top_k,
+            question=question,
+        )
 
         if not chunks:
             return RagAnswer(
