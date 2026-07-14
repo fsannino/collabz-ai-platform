@@ -97,13 +97,13 @@ class RagAssistant:
         answer = self._generate(prompt).strip()
 
         if self.strict_grounding:
-            valid, unsupported = validate_listed_entities(answer, context)
+            valid, _unsupported = validate_listed_entities(answer, context)
             if not valid:
-                names = ", ".join(unsupported)
                 answer = (
                     "Não encontrei evidência documental suficiente para "
-                    "responder com segurança. A resposta gerada continha "
-                    f"entidades não presentes literalmente nas fontes: {names}."
+                    "responder com segurança. A resposta gerada foi descartada "
+                    "porque continha entidades não confirmadas literalmente "
+                    "nas fontes recuperadas."
                 )
 
         return RagAnswer(
