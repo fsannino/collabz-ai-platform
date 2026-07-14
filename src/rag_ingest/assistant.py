@@ -9,6 +9,7 @@ import requests
 
 from rag_ingest.config import CollectionConfig, Settings, load_collections
 from rag_ingest.context_builder import ContextBuilder
+from rag_ingest.metadata_filter import MetadataFilter
 from rag_ingest.models import RagAnswer
 from rag_ingest.prompt_manager import PromptManager
 from rag_ingest.reranker import DiversityReranker
@@ -56,12 +57,14 @@ class RagAssistant:
         top_k: int = 8,
         per_collection: int = 5,
         style: str = "normal",
+        metadata_filter: MetadataFilter | None = None,
     ) -> RagAnswer:
         selected = self._select_collections(collection_keys, use_all)
         candidates = self._retriever.search(
             question=question,
             collections=selected,
             candidates_per_collection=max(per_collection, top_k),
+            metadata_filter=metadata_filter,
         )
         chunks = self._reranker.rank(candidates, limit=top_k)
 
