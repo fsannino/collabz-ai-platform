@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 
 from rag_ingest.assistant import RagAssistant
 from rag_ingest.config import Settings
+from rag_ingest.metadata_filter import MetadataFilter
 
 
 def load_environment() -> None:
@@ -47,8 +48,37 @@ def main() -> None:
     parser.add_argument("--per-collection", type=int, default=5)
     parser.add_argument("--config", default="collections.yaml")
     parser.add_argument("--show-context", action="store_true")
+    parser.add_argument("--source-contains")
+    parser.add_argument("--folder-contains")
+    parser.add_argument("--file-extension")
+    parser.add_argument(
+        "--metadata",
+        action="append",
+        default=[],
+        metavar="CHAVE=VALOR",
+        help="filtro exato de metadado; pode ser repetido",
+    )
 
     args = parser.parse_args()
+
+    exact: dict[str, str] = {}
+    for item in args.metadata:
+        if "=" not in item:
+            parser.error(f"Filtro inválido: {item}. Use CHAVE=VALOR.")
+        key, value = item.split("=", 1)
+        key = key.strip()
+        if not key:
+            parser.error("A chave do filtro de metadado não pode ser vazia.")
+        exact[key] = value.strip()
+
+    metadata_filter = None
+    if exact or args.source_contains or args.folder_contains or args.file_extension:
+        metadata_filter = MetadataFilter(
+            exact=exact,
+            source_contains=args.source_contains,
+            folder_contains=args.folder_contains,
+            file_extension=args.file_extension,
+        )
 
     assistant = RagAssistant(
         settings=Settings.from_env(),
@@ -63,6 +93,7 @@ def main() -> None:
         top_k=args.top_k,
         per_collection=args.per_collection,
         style=args.style,
+        metadata_filter=metadata_filter,
     )
 
     print("=" * 90)
