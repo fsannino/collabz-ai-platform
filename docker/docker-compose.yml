@@ -1,0 +1,18 @@
+services:
+  rag-ingest:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: ai-rag-ingest
+    restart: "no"
+    env_file:
+      - ../.env.local
+    volumes:
+      - /volume1/home:/data:ro
+      - ../collections.nas.yaml:/app/collections.yaml:ro
+    networks:
+      - ai-rag-net
+
+networks:
+  ai-rag-net:
+    external: true

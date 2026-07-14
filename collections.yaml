@@ -1,0 +1,79 @@
+collections:
+  livros_artigos:
+    collection_name: livros_artigos_kb
+    enabled: true
+    roots:
+    - alias: livros_artigos_00
+      path: \\192.168.0.68\home\00-Livros_e_Artigos
+    - alias: artigos_livros_005
+      path: \\192.168.0.68\home\005-Artigos_e_Livros
+  educacao_treinamentos:
+    collection_name: educacao_treinamentos_kb
+    enabled: true
+    roots:
+    - alias: educacao_treinamentos
+      path: \\192.168.0.68\home\002-Educacao_e_Treinamentos
+  trabalho:
+    collection_name: trabalho_kb
+    enabled: true
+    roots:
+    - alias: collabz_trabalho
+      path: \\192.168.0.68\home\003-Collabz_Trabalho
+  associacoes:
+    collection_name: associacoes_kb
+    enabled: true
+    roots:
+    - alias: associacoes
+      path: \\192.168.0.68\home\004-Associacoes
+  projetos_codigo:
+    collection_name: projetos_codigo_kb
+    enabled: true
+    roots:
+    - alias: projetos_codigo
+      path: \\192.168.0.68\home\007-Projetos_e_Codigo
+  terapias_espiritualidade:
+    collection_name: terapias_espiritualidade_kb
+    enabled: true
+    roots:
+    - alias: terapias_espiritualidade
+      path: \\192.168.0.68\home\008-Terapias_e_Espiritualidade
+  hobbies:
+    collection_name: hobbies_kb
+    enabled: true
+    roots:
+    - alias: hobbies
+      path: \\192.168.0.68\home\009-Hobbies
+  emails_comunicacao:
+    collection_name: emails_comunicacao_kb
+    enabled: true
+    roots:
+    - alias: emails_comunicacao
+      path: \\192.168.0.68\home\010-Emails_e_Comunicacao
+  software:
+    collection_name: software_kb
+    enabled: true
+    roots:
+    - alias: diversos_software
+      path: \\192.168.0.68\home\011-Diversos_e_Software
+    - alias: software_drivers
+      path: \\192.168.0.68\home\011-Software_e_Drivers
+  pessoal:
+    collection_name: pessoal_kb
+    enabled: false
+    roots:
+    - alias: familia_pessoal
+      path: \\192.168.0.68\home\001-Familia_e_Pessoal
+    - alias: pessoal
+      path: \\192.168.0.68\home\001-Pessoal
+  fotos_imagens:
+    collection_name: fotos_imagens_kb
+    enabled: false
+    roots:
+    - alias: fotos_imagens
+      path: \\192.168.0.68\home\006-Fotos_e_Imagens
+  videos:
+    collection_name: videos_kb
+    enabled: false
+    roots:
+    - alias: videos
+      path: \\192.168.0.68\home\00-VIDEOS

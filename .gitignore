@@ -1,0 +1,39 @@
+# Ambientes e cache Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Configurações locais e segredos
+.env
+.env.local
+.env.*.local
+
+# Dados e persistência local
+logs/
+cache/
+data/
+chroma/
+ollama/
+
+# Backups
+*.backup
+*.bak
+*.old
+
+# Pacotes e arquivos temporários
+*.zip
+*.csv
+dist/
+build/
+*.egg-info/
+
+# IDE
+.vscode/
+.idea/
+
+# Sistema operacional
+Thumbs.db
+.DS_Store

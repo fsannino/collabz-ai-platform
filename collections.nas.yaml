@@ -1,0 +1,9 @@
+# Exemplo para a futura execução dentro do NAS.
+# Ajustaremos todos os caminhos na fase Docker.
+collections:
+  trabalho:
+    collection_name: trabalho_kb
+    enabled: true
+    roots:
+      - alias: collabz_trabalho
+        path: /data/003-Collabz_Trabalho

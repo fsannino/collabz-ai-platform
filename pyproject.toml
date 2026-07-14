@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "collabz-rag"
+version = "0.1.0"
+description = "Pipeline RAG multicoleção para Ollama e ChromaDB"
+readme = "README.md"
+requires-python = ">=3.11,<3.13"
+dependencies = [
+    "chromadb>=1.5,<2",
+    "requests>=2.31,<3",
+    "python-dotenv>=1.0,<2",
+    "watchdog>=4,<7",
+    "pdfplumber>=0.11,<1",
+    "python-docx>=1.1,<2",
+    "beautifulsoup4>=4.12,<5",
+    "PyYAML>=6,<7",
+]
+
+[project.scripts]
+rag-ingest = "rag_ingest.ingest:main"
+rag-query = "rag_ingest.query:main"
+rag-status = "rag_ingest.status:main"
+rag-ask = "rag_ingest.ask:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
