@@ -24,14 +24,30 @@ def reciprocal_rank(ranked_sources: list[str], expected_sources: list[str]) -> f
 
 
 def ndcg_at_k(ranked_sources: list[str], expected_sources: list[str], k: int) -> float:
-    expected = [item.lower() for item in expected_sources]
-    gains = []
+    """Calcula NDCG binário com correspondência um-para-um.
+
+    Cada fonte esperada pode contribuir no máximo uma vez. Isso evita que
+    duplicatas ou versões do mesmo arquivo elevem o NDCG acima de 1.0.
+    """
+    remaining = [item.lower() for item in expected_sources]
+    gains: list[float] = []
+
     for source in ranked_sources[:k]:
         lowered = source.lower()
-        gains.append(1.0 if any(target in lowered for target in expected) else 0.0)
+        matched_index = next(
+            (index for index, target in enumerate(remaining) if target in lowered),
+            None,
+        )
+        if matched_index is None:
+            gains.append(0.0)
+        else:
+            gains.append(1.0)
+            remaining.pop(matched_index)
+
     dcg = sum(gain / math.log2(index + 2) for index, gain in enumerate(gains))
-    ideal_hits = min(len(expected), k)
+    ideal_hits = min(len(expected_sources), k)
     if ideal_hits == 0:
         return 0.0
+
     idcg = sum(1.0 / math.log2(index + 2) for index in range(ideal_hits))
-    return dcg / idcg
+    return min(dcg / idcg, 1.0)
