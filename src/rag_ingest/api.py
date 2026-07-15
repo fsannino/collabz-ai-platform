@@ -184,6 +184,35 @@ def _run_chat(question: str) -> RagAnswer:
         raise HTTPException(status_code=500, detail=str(error)) from error
 
 
+def _format_chat_sources(result: RagAnswer) -> str:
+    if not result.chunks:
+        return ""
+
+    lines = ["", "", "---", "", "Fontes:"]
+    seen: set[str] = set()
+
+    for chunk in result.chunks:
+        source = chunk.source.strip()
+        normalized = source.replace("\\", "/").lower()
+
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+
+        filename = source.replace("\\", "/").rsplit("/", 1)[-1]
+        lines.append(
+            f"{len(seen)}. {filename}\n"
+            f"   Cole??o: {chunk.collection_key}\n"
+            f"   Caminho: {source}"
+        )
+
+    return "\n".join(lines)
+
+
+def _answer_with_sources(result: RagAnswer) -> str:
+    return result.answer.rstrip() + _format_chat_sources(result)
+
+
 def _completion_id() -> str:
     return f"chatcmpl-collabz-{int(time.time() * 1000)}"
 
@@ -214,7 +243,7 @@ def _stream_chat(result: RagAnswer, completion_id: str) -> Iterator[str]:
         "choices": [
             {
                 "index": 0,
-                "delta": {"content": result.answer},
+                "delta": {"content": _answer_with_sources(result)},
                 "finish_reason": None,
             }
         ],
@@ -265,7 +294,7 @@ def chat(payload: ChatCompletionRequest) -> dict[str, Any] | StreamingResponse:
                 "index": 0,
                 "message": {
                     "role": "assistant",
-                    "content": result.answer,
+                    "content": _answer_with_sources(result),
                 },
                 "finish_reason": "stop",
             }
