@@ -29,6 +29,8 @@ class RagAssistant:
         self.llm_model = llm_model or os.getenv("LLM_MODEL", "llama3.2:1b")
         self.temperature = float(os.getenv("LLM_TEMPERATURE", "0.1"))
         self.timeout = int(os.getenv("LLM_TIMEOUT_SECONDS", "900"))
+        self.num_predict = int(os.getenv("LLM_NUM_PREDICT", "192"))
+        self.num_ctx = int(os.getenv("LLM_NUM_CTX", "2048"))
         self.max_chunks_per_source = int(
             os.getenv("RAG_MAX_CHUNKS_PER_SOURCE", "1")
         )
@@ -145,7 +147,11 @@ class RagAssistant:
                 "model": self.llm_model,
                 "prompt": prompt,
                 "stream": False,
-                "options": {"temperature": self.temperature},
+                "options": {
+                    "temperature": self.temperature,
+                    "num_predict": self.num_predict,
+                    "num_ctx": self.num_ctx,
+                },
             },
             timeout=self.timeout,
         )
