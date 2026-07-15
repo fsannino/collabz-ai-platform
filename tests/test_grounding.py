@@ -19,6 +19,12 @@ def test_extracts_acronym_expansions_from_running_text() -> None:
     ) == ["Comissão Central de Controle, Cooperação e Monitoramento"]
 
 
+def test_extracts_parenthetical_acronym_expansion() -> None:
+    assert acronym_expansions(
+        "O CCMP (Conformidade, Confiabilidade e Compatibilidade de Produção) é um teste."
+    ) == ["Conformidade, Confiabilidade e Compatibilidade de Produção"]
+
+
 def test_accepts_entities_present_in_context() -> None:
     valid, unsupported = validate_listed_entities(
         "1. PMI São Paulo\n2. ACMP",
@@ -47,6 +53,17 @@ def test_rejects_unsupported_acronym_expansion_in_sentence() -> None:
     assert valid is False
     assert unsupported == [
         "Comissão Central de Controle, Cooperação e Monitoramento"
+    ]
+
+
+def test_rejects_unsupported_parenthetical_acronym_expansion() -> None:
+    valid, unsupported = validate_listed_entities(
+        "O CCMP (Conformidade, Confiabilidade e Compatibilidade de Produção) é um teste.",
+        "A CCMP é um rigoroso teste de habilidades em gestão de mudanças.",
+    )
+    assert valid is False
+    assert unsupported == [
+        "Conformidade, Confiabilidade e Compatibilidade de Produção"
     ]
 
 
