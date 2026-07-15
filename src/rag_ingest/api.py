@@ -202,7 +202,7 @@ def _format_chat_sources(result: RagAnswer) -> str:
         filename = source.replace("\\", "/").rsplit("/", 1)[-1]
         lines.append(
             f"{len(seen)}. {filename}\n"
-            f"   Cole??o: {chunk.collection_key}\n"
+            f"   Colecao: {chunk.collection_key}\n"
             f"   Caminho: {source}"
         )
 
