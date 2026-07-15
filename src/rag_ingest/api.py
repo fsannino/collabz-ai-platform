@@ -1,16 +1,20 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
+import json
 import os
+import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from rag_ingest.assistant import RagAssistant
 from rag_ingest.config import Settings
 from rag_ingest.metadata_filter import MetadataFilter
+from rag_ingest.models import RagAnswer
 
 
 def load_environment() -> None:
@@ -20,7 +24,7 @@ def load_environment() -> None:
 
 load_environment()
 
-app = FastAPI(title="CollabZ AI Core", version="0.3.0")
+app = FastAPI(title="CollabZ AI Core", version="0.4.0")
 
 
 class MetadataFilterRequest(BaseModel):
@@ -133,18 +137,11 @@ def models() -> dict[str, Any]:
     }
 
 
-@app.post("/v1/chat/completions")
-def chat(payload: ChatCompletionRequest) -> dict[str, Any]:
-    if payload.stream:
-        raise HTTPException(
-            status_code=400,
-            detail="Streaming ainda não está habilitado.",
-        )
-
+def _question_from_messages(messages: list[ChatMessage]) -> str:
     question = next(
         (
             message.content.strip()
-            for message in reversed(payload.messages)
+            for message in reversed(messages)
             if message.role == "user" and message.content.strip()
         ),
         None,
@@ -154,7 +151,10 @@ def chat(payload: ChatCompletionRequest) -> dict[str, Any]:
             status_code=400,
             detail="Nenhuma mensagem do usuário foi informada.",
         )
+    return question
 
+
+def _run_chat(question: str) -> RagAnswer:
     use_all = os.getenv(
         "OPENAI_COMPAT_USE_ALL",
         "false",
@@ -170,7 +170,7 @@ def chat(payload: ChatCompletionRequest) -> dict[str, Any]:
     ]
 
     try:
-        result = build_assistant().answer(
+        return build_assistant().answer(
             question=question,
             collection_keys=None if use_all else collections,
             use_all=use_all,
@@ -183,9 +183,82 @@ def chat(payload: ChatCompletionRequest) -> dict[str, Any]:
     except Exception as error:
         raise HTTPException(status_code=500, detail=str(error)) from error
 
+
+def _completion_id() -> str:
+    return f"chatcmpl-collabz-{int(time.time() * 1000)}"
+
+
+def _stream_chat(result: RagAnswer, completion_id: str) -> Iterator[str]:
+    created = int(time.time())
+
+    first_chunk = {
+        "id": completion_id,
+        "object": "chat.completion.chunk",
+        "created": created,
+        "model": "collabz-rag",
+        "choices": [
+            {
+                "index": 0,
+                "delta": {"role": "assistant"},
+                "finish_reason": None,
+            }
+        ],
+    }
+    yield f"data: {json.dumps(first_chunk, ensure_ascii=False)}\n\n"
+
+    content_chunk = {
+        "id": completion_id,
+        "object": "chat.completion.chunk",
+        "created": created,
+        "model": "collabz-rag",
+        "choices": [
+            {
+                "index": 0,
+                "delta": {"content": result.answer},
+                "finish_reason": None,
+            }
+        ],
+    }
+    yield f"data: {json.dumps(content_chunk, ensure_ascii=False)}\n\n"
+
+    final_chunk = {
+        "id": completion_id,
+        "object": "chat.completion.chunk",
+        "created": created,
+        "model": "collabz-rag",
+        "choices": [
+            {
+                "index": 0,
+                "delta": {},
+                "finish_reason": "stop",
+            }
+        ],
+    }
+    yield f"data: {json.dumps(final_chunk, ensure_ascii=False)}\n\n"
+    yield "data: [DONE]\n\n"
+
+
+@app.post("/v1/chat/completions", response_model=None)
+def chat(payload: ChatCompletionRequest) -> dict[str, Any] | StreamingResponse:
+    question = _question_from_messages(payload.messages)
+    result = _run_chat(question)
+    completion_id = _completion_id()
+
+    if payload.stream:
+        return StreamingResponse(
+            _stream_chat(result, completion_id),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
     return {
-        "id": "chatcmpl-collabz",
+        "id": completion_id,
         "object": "chat.completion",
+        "created": int(time.time()),
         "model": "collabz-rag",
         "choices": [
             {
@@ -203,3 +276,4 @@ def chat(payload: ChatCompletionRequest) -> dict[str, Any]:
             "total_tokens": 0,
         },
     }
+
