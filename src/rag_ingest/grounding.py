@@ -38,25 +38,26 @@ def acronym_expansions(answer: str) -> list[str]:
     - ``CCMP refere-se à Comissão Central de Controle``
     - ``CCMP é a sigla para ...``
     - ``CCMP (Conformidade, Confiabilidade e Compatibilidade de Produção)``
+
+    A sigla precisa estar efetivamente em maiúsculas. Isso evita interpretar
+    palavras comuns, como ``Mudança (AGCM)``, como se ``Mudança`` fosse sigla.
     """
     acronym = r"[A-ZÁÉÍÓÚÇ][A-Z0-9ÁÉÍÓÚÇ-]{1,15}"
     patterns = (
         re.compile(
-            rf"\b{acronym}\b\s+"
-            r"(?:significa|refere-se\s+(?:a|à)|é\s+a\s+sigla\s+para)\s+"
+            rf"\b({acronym})\b\s+"
+            r"(?i:significa|refere-se\s+(?:a|à)|é\s+a\s+sigla\s+para)\s+"
             r"([^.;:\n]+)",
-            flags=re.IGNORECASE,
         ),
         re.compile(
-            rf"\b{acronym}\b\s*\(([^)\n]+)\)",
-            flags=re.IGNORECASE,
+            rf"\b({acronym})\b\s*\(([^)\n]+)\)",
         ),
     )
 
     expansions: list[str] = []
     for pattern in patterns:
         for match in pattern.finditer(answer):
-            value = match.group(1).strip(" *.;:")
+            value = match.group(2).strip(" *.;:")
             if value and value not in expansions:
                 expansions.append(value)
     return expansions
