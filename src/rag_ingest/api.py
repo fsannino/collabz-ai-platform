@@ -200,10 +200,15 @@ def _format_chat_sources(result: RagAnswer) -> str:
         seen.add(normalized)
 
         filename = source.replace("\\", "/").rsplit("/", 1)[-1]
+        snippet = " ".join(chunk.document.split())
+        if len(snippet) > 300:
+            snippet = snippet[:297].rstrip() + "..."
+
         lines.append(
-            f"{len(seen)}. {filename}\n"
+            f"[{len(seen)}] {filename}\n"
             f"   Colecao: {chunk.collection_key}\n"
-            f"   Caminho: {source}"
+            f"   Caminho: {source}\n"
+            f"   Trecho utilizado: {snippet}"
         )
 
     return "\n".join(lines)
