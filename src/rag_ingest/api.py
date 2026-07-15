@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 import os
@@ -238,7 +238,7 @@ def _stream_chat(result: RagAnswer, completion_id: str) -> Iterator[str]:
     yield "data: [DONE]\n\n"
 
 
-@app.post("/v1/chat/completions")
+@app.post("/v1/chat/completions", response_model=None)
 def chat(payload: ChatCompletionRequest) -> dict[str, Any] | StreamingResponse:
     question = _question_from_messages(payload.messages)
     result = _run_chat(question)
@@ -276,3 +276,4 @@ def chat(payload: ChatCompletionRequest) -> dict[str, Any] | StreamingResponse:
             "total_tokens": 0,
         },
     }
+
