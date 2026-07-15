@@ -86,8 +86,8 @@ def test_chat_deduplicates_same_source() -> None:
     content = api._answer_with_sources(result)
 
     assert content.count("documento.pdf") == 2
-    assert content.count("1. documento.pdf") == 1
-    assert "2. documento.pdf" not in content
+    assert content.count("[1] documento.pdf") == 1
+    assert "[2] documento.pdf" not in content
 
 def test_chat_sources_include_document_snippet() -> None:
     chunk = RetrievedChunk(

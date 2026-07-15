@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 import os
@@ -200,7 +200,8 @@ def _format_chat_sources(result: RagAnswer) -> str:
         seen.add(normalized)
 
         filename = source.replace("\\", "/").rsplit("/", 1)[-1]
-        snippet = " ".join(chunk.document.split())
+        snippet = chunk.document.replace("\\n", " ")
+        snippet = " ".join(snippet.split())
         if len(snippet) > 300:
             snippet = snippet[:297].rstrip() + "..."
 
