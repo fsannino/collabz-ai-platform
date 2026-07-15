@@ -22,6 +22,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--top-k", type=int, default=10)
     parser.add_argument("--per-collection", type=int, default=40)
     parser.add_argument("--json", action="store_true", dest="as_json")
+    parser.add_argument("--fail-below-mrr", type=float)
+    parser.add_argument("--fail-below-recall-at-5", type=float)
+    parser.add_argument("--fail-below-ndcg-at-10", type=float)
     return parser
 
 
@@ -71,6 +74,19 @@ def run_retrieval(
     return json.loads(completed.stdout[start:])
 
 
+def quality_gate_failures(payload: dict, args: argparse.Namespace) -> list[str]:
+    checks = [
+        ("MRR", payload["mrr"], args.fail_below_mrr),
+        ("Recall@5", payload["recall_at_5"], args.fail_below_recall_at_5),
+        ("NDCG@10", payload["ndcg_at_10"], args.fail_below_ndcg_at_10),
+    ]
+    return [
+        f"{name}={actual:.4f} abaixo do mínimo {minimum:.4f}"
+        for name, actual, minimum in checks
+        if minimum is not None and actual < minimum
+    ]
+
+
 def main() -> None:
     args = build_parser().parse_args()
     dataset_path = Path(args.dataset)
@@ -116,22 +132,31 @@ def main() -> None:
         "cases": rows,
     }
 
+    failures = quality_gate_failures(payload, args)
+    payload["quality_gate_passed"] = not failures
+    payload["quality_gate_failures"] = failures
+
     if args.as_json:
         print(json.dumps(payload, ensure_ascii=False, indent=2))
-        return
+    else:
+        print("=" * 70)
+        print("RAG EVALUATION")
+        print("=" * 70)
+        print(f"Dataset............... {payload['dataset']}")
+        print(f"Coleção............... {payload['collection']}")
+        print(f"Modo.................. {payload['mode']}")
+        print(f"Perguntas............. {payload['questions']}")
+        print(f"Recall@5.............. {payload['recall_at_5']:.4f}")
+        print(f"Recall@10............. {payload['recall_at_10']:.4f}")
+        print(f"MRR................... {payload['mrr']:.4f}")
+        print(f"NDCG@10............... {payload['ndcg_at_10']:.4f}")
+        print(f"Tempo total........... {payload['elapsed_seconds']:.3f}s")
+        print(f"Quality gate.......... {'APROVADO' if not failures else 'FALHOU'}")
+        for failure in failures:
+            print(f"- {failure}")
 
-    print("=" * 70)
-    print("RAG EVALUATION")
-    print("=" * 70)
-    print(f"Dataset............... {payload['dataset']}")
-    print(f"Coleção............... {payload['collection']}")
-    print(f"Modo.................. {payload['mode']}")
-    print(f"Perguntas............. {payload['questions']}")
-    print(f"Recall@5.............. {payload['recall_at_5']:.4f}")
-    print(f"Recall@10............. {payload['recall_at_10']:.4f}")
-    print(f"MRR................... {payload['mrr']:.4f}")
-    print(f"NDCG@10............... {payload['ndcg_at_10']:.4f}")
-    print(f"Tempo total........... {payload['elapsed_seconds']:.3f}s")
+    if failures:
+        raise SystemExit(2)
 
 
 if __name__ == "__main__":
