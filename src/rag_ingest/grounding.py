@@ -1,4 +1,4 @@
-"""Validação simples de entidades listadas contra o contexto recuperado."""
+"""Validação conservadora de entidades e expansões contra o contexto."""
 
 from __future__ import annotations
 
@@ -8,7 +8,10 @@ import unicodedata
 
 def _normalize(text: str) -> str:
     normalized = unicodedata.normalize("NFKD", text.casefold())
-    return "".join(ch for ch in normalized if not unicodedata.combining(ch))
+    normalized = "".join(
+        ch for ch in normalized if not unicodedata.combining(ch)
+    )
+    return re.sub(r"\s+", " ", normalized).strip()
 
 
 def listed_entities(answer: str) -> list[str]:
@@ -27,16 +30,47 @@ def listed_entities(answer: str) -> list[str]:
     return entities
 
 
+def acronym_expansions(answer: str) -> list[str]:
+    """Extrai expansões declaradas para siglas em frases corridas.
+
+    Exemplos reconhecidos:
+    - ``CCMP significa Certified Change Management Professional``
+    - ``CCMP refere-se à Comissão Central de Controle``
+    - ``CCMP é a sigla para ...``
+    """
+    patterns = (
+        re.compile(
+            r"\b[A-ZÁÉÍÓÚÇ][A-Z0-9ÁÉÍÓÚÇ-]{1,15}\b\s+"
+            r"(?:significa|refere-se\s+(?:a|à)|é\s+a\s+sigla\s+para)\s+"
+            r"([^.;:\n]+)",
+            flags=re.IGNORECASE,
+        ),
+    )
+
+    expansions: list[str] = []
+    for pattern in patterns:
+        for match in pattern.finditer(answer):
+            value = match.group(1).strip(" *.;:")
+            if value:
+                expansions.append(value)
+    return expansions
+
+
 def validate_listed_entities(answer: str, context: str) -> tuple[bool, list[str]]:
-    """Confirma se cada entidade listada aparece literalmente no contexto."""
-    entities = listed_entities(answer)
-    if not entities:
+    """Confirma entidades listadas e expansões de siglas no contexto.
+
+    A função preserva a interface histórica, mas agora também rejeita
+    expansões declarativas de siglas que não estejam literalmente apoiadas
+    pelo contexto recuperado.
+    """
+    claims = listed_entities(answer) + acronym_expansions(answer)
+    if not claims:
         return True, []
 
     normalized_context = _normalize(context)
     unsupported = [
-        entity
-        for entity in entities
-        if _normalize(entity) not in normalized_context
+        claim
+        for claim in claims
+        if _normalize(claim) not in normalized_context
     ]
     return not unsupported, unsupported
