@@ -46,4 +46,6 @@ Thumbs.db
 *.sqlite3-shm
 *.sqlite3-wal
 
+.indexes/
 reports/
+request-ask.json
