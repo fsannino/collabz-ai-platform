@@ -13,6 +13,7 @@ from rag_ingest.grounding import validate_listed_entities
 from rag_ingest.metadata_filter import MetadataFilter
 from rag_ingest.models import RagAnswer
 from rag_ingest.prompt_manager import PromptManager
+from rag_ingest.query_rewriter import QueryRewriter
 from rag_ingest.reranker import DiversityReranker
 from rag_ingest.retriever import VectorRetriever
 
@@ -48,6 +49,7 @@ class RagAssistant:
         ).strip().lower() in {"1", "true", "yes", "on"}
 
         self._retriever = VectorRetriever(settings)
+        self._query_rewriter = QueryRewriter()
         self._reranker = DiversityReranker(
             max_chunks_per_source=self.max_chunks_per_source,
             max_distance=self.max_distance,
@@ -69,8 +71,9 @@ class RagAssistant:
         metadata_filter: MetadataFilter | None = None,
     ) -> RagAnswer:
         selected = self._select_collections(collection_keys, use_all)
+        retrieval_question = self._query_rewriter.rewrite(question)
         candidates = self._retriever.search(
-            question=question,
+            question=retrieval_question,
             collections=selected,
             candidates_per_collection=max(per_collection, top_k),
             metadata_filter=metadata_filter,
@@ -78,7 +81,7 @@ class RagAssistant:
         chunks = self._reranker.rank(
             candidates,
             limit=top_k,
-            question=question,
+            question=retrieval_question,
         )
 
         if not chunks:
