@@ -37,21 +37,28 @@ def acronym_expansions(answer: str) -> list[str]:
     - ``CCMP significa Certified Change Management Professional``
     - ``CCMP refere-se à Comissão Central de Controle``
     - ``CCMP é a sigla para ...``
+    - ``CCMP (Conformidade, Confiabilidade e Compatibilidade de Produção)``
+
+    A sigla precisa estar efetivamente em maiúsculas. Isso evita interpretar
+    palavras comuns, como ``Mudança (AGCM)``, como se ``Mudança`` fosse sigla.
     """
+    acronym = r"[A-ZÁÉÍÓÚÇ][A-Z0-9ÁÉÍÓÚÇ-]{1,15}"
     patterns = (
         re.compile(
-            r"\b[A-ZÁÉÍÓÚÇ][A-Z0-9ÁÉÍÓÚÇ-]{1,15}\b\s+"
-            r"(?:significa|refere-se\s+(?:a|à)|é\s+a\s+sigla\s+para)\s+"
+            rf"\b({acronym})\b\s+"
+            r"(?i:significa|refere-se\s+(?:a|à)|é\s+a\s+sigla\s+para)\s+"
             r"([^.;:\n]+)",
-            flags=re.IGNORECASE,
+        ),
+        re.compile(
+            rf"\b({acronym})\b\s*\(([^)\n]+)\)",
         ),
     )
 
     expansions: list[str] = []
     for pattern in patterns:
         for match in pattern.finditer(answer):
-            value = match.group(1).strip(" *.;:")
-            if value:
+            value = match.group(2).strip(" *.;:")
+            if value and value not in expansions:
                 expansions.append(value)
     return expansions
 
@@ -59,9 +66,9 @@ def acronym_expansions(answer: str) -> list[str]:
 def validate_listed_entities(answer: str, context: str) -> tuple[bool, list[str]]:
     """Confirma entidades listadas e expansões de siglas no contexto.
 
-    A função preserva a interface histórica, mas agora também rejeita
-    expansões declarativas de siglas que não estejam literalmente apoiadas
-    pelo contexto recuperado.
+    A função preserva a interface histórica, mas também rejeita expansões
+    declarativas ou parentéticas de siglas que não estejam literalmente
+    apoiadas pelo contexto recuperado.
     """
     claims = listed_entities(answer) + acronym_expansions(answer)
     if not claims:

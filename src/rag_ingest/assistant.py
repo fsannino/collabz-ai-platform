@@ -31,6 +31,7 @@ class RagAssistant:
         self.timeout = int(os.getenv("LLM_TIMEOUT_SECONDS", "900"))
         self.num_predict = int(os.getenv("LLM_NUM_PREDICT", "192"))
         self.num_ctx = int(os.getenv("LLM_NUM_CTX", "2048"))
+        self.llm_ollama_urls = self._load_llm_ollama_urls()
         self.max_chunks_per_source = int(
             os.getenv("RAG_MAX_CHUNKS_PER_SOURCE", "1")
         )
@@ -140,25 +141,48 @@ class RagAssistant:
 
         return [enabled[key] for key in requested]
 
+    def _load_llm_ollama_urls(self) -> tuple[str, ...]:
+        """Carrega backends de chat em ordem de preferência.
+
+        ``LLM_OLLAMA_URLS`` aceita URLs separadas por vírgula. Quando ausente,
+        mantém compatibilidade usando ``OLLAMA_URL`` do Settings.
+        """
+        raw_urls = os.getenv("LLM_OLLAMA_URLS", "")
+        urls = [item.strip().rstrip("/") for item in raw_urls.split(",")]
+        urls = [item for item in urls if item]
+        if not urls:
+            urls = [self.settings.ollama_url.rstrip("/")]
+        return tuple(dict.fromkeys(urls))
+
     def _generate(self, prompt: str) -> str:
-        response = requests.post(
-            f"{self.settings.ollama_url.rstrip('/')}/api/generate",
-            json={
-                "model": self.llm_model,
-                "prompt": prompt,
-                "stream": False,
-                "options": {
-                    "temperature": self.temperature,
-                    "num_predict": self.num_predict,
-                    "num_ctx": self.num_ctx,
-                },
+        payload = {
+            "model": self.llm_model,
+            "prompt": prompt,
+            "stream": False,
+            "options": {
+                "temperature": self.temperature,
+                "num_predict": self.num_predict,
+                "num_ctx": self.num_ctx,
             },
-            timeout=self.timeout,
+        }
+        failures: list[str] = []
+
+        for base_url in self.llm_ollama_urls:
+            try:
+                response = requests.post(
+                    f"{base_url}/api/generate",
+                    json=payload,
+                    timeout=self.timeout,
+                )
+                response.raise_for_status()
+                answer = response.json().get("response")
+                if answer:
+                    return str(answer)
+                failures.append(f"{base_url}: resposta vazia")
+            except (requests.RequestException, ValueError) as error:
+                failures.append(f"{base_url}: {error}")
+
+        details = "; ".join(failures) or "nenhum backend configurado"
+        raise RuntimeError(
+            f"Nenhum backend Ollama respondeu para {self.llm_model}. {details}"
         )
-        response.raise_for_status()
-        answer = response.json().get("response")
-        if not answer:
-            raise RuntimeError(
-                f"Ollama retornou resposta vazia para {self.llm_model}."
-            )
-        return str(answer)
