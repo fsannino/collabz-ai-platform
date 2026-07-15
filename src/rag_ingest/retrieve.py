@@ -1,4 +1,4 @@
-"""CLI de diagnóstico da recuperação, sem chamar o modelo de linguagem."""
+"""CLI de diagnóstico da recuperação vetorial, lexical ou híbrida."""
 
 from __future__ import annotations
 
@@ -13,9 +13,12 @@ from typing import Any
 from dotenv import load_dotenv
 
 from rag_ingest.config import CollectionConfig, Settings, load_collections
+from rag_ingest.lexical_index import LexicalHit, SQLiteLexicalIndex
 from rag_ingest.metadata_filter import MetadataFilter
+from rag_ingest.models import RetrievedChunk
 from rag_ingest.reranker import DiversityReranker
 from rag_ingest.retriever import VectorRetriever
+from rag_ingest.rrf import chunk_key, reciprocal_rank_fusion
 
 
 def load_environment() -> None:
@@ -56,29 +59,82 @@ def select_collections(
     return [enabled[key] for key in requested]
 
 
+def lexical_hit_to_chunk(hit: LexicalHit) -> RetrievedChunk:
+    metadata = dict(hit.metadata)
+    metadata.setdefault("collection_key", hit.collection_key)
+    metadata.setdefault("source", hit.source)
+    metadata["retrieval_origin"] = "lexical"
+    source = str(metadata.get("source_absolute") or hit.source)
+    return RetrievedChunk(
+        collection_key=hit.collection_key,
+        distance=0.0,
+        document=hit.text,
+        source=source,
+        metadata=metadata,
+    )
+
+
+def search_lexical(
+    *,
+    question: str,
+    selected: list[CollectionConfig],
+    limit: int,
+    metadata_filter: MetadataFilter,
+    database_path: str,
+) -> tuple[list[RetrievedChunk], dict[tuple[str, str, int | None], float]]:
+    database = Path(database_path)
+    if not database.exists():
+        raise RuntimeError(
+            f"Índice lexical não encontrado: {database}. "
+            "Execute rag-lexical-build antes da busca lexical ou híbrida."
+        )
+
+    index = SQLiteLexicalIndex(database)
+    # Recupera excedente para compensar filtros e duplicatas.
+    raw_hits = index.search(
+        query=question,
+        collection_keys=[item.key for item in selected],
+        limit=max(limit * 3, limit),
+    )
+
+    chunks: list[RetrievedChunk] = []
+    scores: dict[tuple[str, str, int | None], float] = {}
+    for hit in raw_hits:
+        chunk = lexical_hit_to_chunk(hit)
+        if not metadata_filter.matches(chunk.source, chunk.metadata):
+            continue
+        chunks.append(chunk)
+        scores[chunk_key(chunk)] = float(hit.score)
+        if len(chunks) >= limit:
+            break
+    return chunks, scores
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Diagnóstico da recuperação vetorial sem chamar o Ollama LLM"
+        description="Diagnóstico vetorial, lexical ou híbrido sem chamar o LLM"
     )
     selection = parser.add_mutually_exclusive_group(required=True)
-    selection.add_argument(
-        "--collection",
-        action="append",
-        help="coleção a consultar; pode ser repetida",
-    )
+    selection.add_argument("--collection", action="append")
     selection.add_argument("--all", action="store_true")
     parser.add_argument("--question", required=True)
+    parser.add_argument(
+        "--mode",
+        choices=("vector", "lexical", "hybrid"),
+        default="hybrid",
+    )
     parser.add_argument("--top-k", type=int, default=8)
-    parser.add_argument("--per-collection", type=int, default=15)
+    parser.add_argument("--per-collection", type=int, default=30)
+    parser.add_argument("--rrf-k", type=int, default=60)
     parser.add_argument("--config", default="collections.yaml")
+    parser.add_argument(
+        "--lexical-index",
+        default=os.getenv("LEXICAL_INDEX_PATH", ".indexes/lexical.sqlite3"),
+    )
     parser.add_argument("--source-contains")
     parser.add_argument("--folder-contains")
     parser.add_argument("--file-extension")
-    parser.add_argument(
-        "--metadata",
-        action="append",
-        help="filtro exato no formato chave=valor; pode ser repetido",
-    )
+    parser.add_argument("--metadata", action="append")
     parser.add_argument("--no-reranker", action="store_true")
     parser.add_argument("--json", action="store_true", dest="as_json")
     parser.add_argument("--show-metadata", action="store_true")
@@ -88,12 +144,9 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> None:
     load_environment()
     args = build_parser().parse_args()
-
     started = perf_counter()
     settings = Settings.from_env()
-    selected = select_collections(
-        Path(args.config), args.collection, args.all
-    )
+    selected = select_collections(Path(args.config), args.collection, args.all)
     metadata_filter = MetadataFilter(
         exact=parse_metadata(args.metadata),
         source_contains=args.source_contains,
@@ -101,19 +154,50 @@ def main() -> None:
         file_extension=args.file_extension,
     )
 
-    retriever = VectorRetriever(settings)
+    requested_per_source = max(args.per_collection, args.top_k)
+    vector_ranking: list[RetrievedChunk] = []
+    lexical_ranking: list[RetrievedChunk] = []
+    lexical_scores: dict[tuple[str, str, int | None], float] = {}
+
     retrieve_started = perf_counter()
-    candidates = retriever.search(
-        question=args.question,
-        collections=selected,
-        candidates_per_collection=max(args.per_collection, args.top_k),
-        metadata_filter=metadata_filter,
-    )
+    if args.mode in {"vector", "hybrid"}:
+        retriever = VectorRetriever(settings)
+        vector_ranking = sorted(
+            retriever.search(
+                question=args.question,
+                collections=selected,
+                candidates_per_collection=requested_per_source,
+                metadata_filter=metadata_filter,
+            ),
+            key=lambda item: item.distance,
+        )
+
+    if args.mode in {"lexical", "hybrid"}:
+        lexical_ranking, lexical_scores = search_lexical(
+            question=args.question,
+            selected=selected,
+            limit=requested_per_source * max(1, len(selected)),
+            metadata_filter=metadata_filter,
+            database_path=args.lexical_index,
+        )
     retrieve_seconds = perf_counter() - retrieve_started
+
+    rrf_scores: dict[tuple[str, str, int | None], float] = {}
+    if args.mode == "vector":
+        ordered = vector_ranking
+    elif args.mode == "lexical":
+        ordered = lexical_ranking
+    else:
+        fused = reciprocal_rank_fusion(
+            [vector_ranking, lexical_ranking],
+            k=args.rrf_k,
+        )
+        ordered = [chunk for chunk, _ in fused]
+        rrf_scores = {chunk_key(chunk): score for chunk, score in fused}
 
     reranker: DiversityReranker | None = None
     if args.no_reranker:
-        chunks = candidates[: args.top_k]
+        chunks = ordered[: args.top_k]
     else:
         reranker = DiversityReranker(
             max_chunks_per_source=int(
@@ -129,22 +213,34 @@ def main() -> None:
                 os.getenv("RAG_NEAR_DUPLICATE_THRESHOLD", "0.88")
             ),
         )
-        chunks = reranker.rank(
-            candidates,
-            limit=args.top_k,
-            question=args.question,
-        )
+        if args.mode == "vector":
+            chunks = reranker.rank(
+                ordered,
+                limit=args.top_k,
+                question=args.question,
+            )
+        else:
+            chunks = reranker.select_ordered(ordered, limit=args.top_k)
 
+    unique_candidates = {
+        chunk_key(chunk)
+        for chunk in [*vector_ranking, *lexical_ranking]
+    }
     total_seconds = perf_counter() - started
 
-    def final_score(chunk: Any) -> float:
-        if reranker is None:
-            return float(chunk.distance)
-        return float(reranker.score(chunk, args.question))
+    def reranker_score(chunk: Any) -> float:
+        return float(
+            chunk.distance
+            if reranker is None
+            else reranker.score(chunk, args.question)
+        )
 
     payload = {
         "question": args.question,
-        "candidate_count": len(candidates),
+        "mode": args.mode,
+        "vector_candidate_count": len(vector_ranking),
+        "lexical_candidate_count": len(lexical_ranking),
+        "candidate_count": len(unique_candidates),
         "result_count": len(chunks),
         "retrieve_seconds": round(retrieve_seconds, 3),
         "total_seconds": round(total_seconds, 3),
@@ -153,7 +249,9 @@ def main() -> None:
                 "rank": index,
                 "collection": chunk.collection_key,
                 "distance": chunk.distance,
-                "reranker_score": final_score(chunk),
+                "bm25_score": lexical_scores.get(chunk_key(chunk), 0.0),
+                "rrf_score": rrf_scores.get(chunk_key(chunk)),
+                "reranker_score": reranker_score(chunk),
                 "source": chunk.source,
                 "metadata": chunk.metadata,
                 "document": chunk.document,
@@ -170,7 +268,10 @@ def main() -> None:
     print("DIAGNÓSTICO DE RECUPERAÇÃO")
     print("=" * 90)
     print(f"Pergunta............. {args.question}")
-    print(f"Candidatos........... {len(candidates)}")
+    print(f"Modo................. {args.mode}")
+    print(f"Candidatos vetoriais. {len(vector_ranking)}")
+    print(f"Candidatos lexicais.. {len(lexical_ranking)}")
+    print(f"Candidatos únicos.... {len(unique_candidates)}")
     print(f"Resultados........... {len(chunks)}")
     print(f"Tempo recuperação.... {retrieve_seconds:.3f}s")
     print(f"Tempo total.......... {total_seconds:.3f}s")
@@ -180,17 +281,26 @@ def main() -> None:
         return
 
     for index, chunk in enumerate(chunks, start=1):
+        key = chunk_key(chunk)
         print("\n" + "=" * 90)
         print(f"RANK {index}")
         print("=" * 90)
         print(f"coleção={chunk.collection_key}")
         print(f"distância={chunk.distance:.6f}")
-        print(f"score_reranker={final_score(chunk):.6f}")
+        print(f"bm25_score={lexical_scores.get(key, 0.0):.6f}")
+        if key in rrf_scores:
+            print(f"rrf_score={rrf_scores[key]:.8f}")
+        print(f"score_reranker={reranker_score(chunk):.6f}")
         print(f"fonte={chunk.source}")
         if args.show_metadata:
-            print("metadados=" + json.dumps(
-                chunk.metadata, ensure_ascii=False, default=str
-            ))
+            print(
+                "metadados="
+                + json.dumps(
+                    chunk.metadata,
+                    ensure_ascii=False,
+                    default=str,
+                )
+            )
         print("-" * 90)
         print(chunk.document.strip())
 

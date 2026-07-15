@@ -60,17 +60,24 @@ class DiversityReranker:
         limit: int,
         question: str = "",
     ) -> list[RetrievedChunk]:
+        ranked = sorted(
+            chunks,
+            key=lambda item: self.score(item, question),
+        )
+        return self.select_ordered(ranked, limit=limit)
+
+    def select_ordered(
+        self,
+        ranked_chunks: list[RetrievedChunk],
+        limit: int,
+    ) -> list[RetrievedChunk]:
+        """Aplica limites e deduplicação preservando a ordem recebida."""
         selected: list[RetrievedChunk] = []
         selected_terms: list[set[str]] = []
         source_counts: dict[str, int] = defaultdict(int)
         seen_content: set[str] = set()
 
-        ranked = sorted(
-            chunks,
-            key=lambda item: self.score(item, question),
-        )
-
-        for chunk in ranked:
+        for chunk in ranked_chunks:
             if self.max_distance is not None and chunk.distance > self.max_distance:
                 continue
 
