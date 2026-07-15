@@ -1,4 +1,4 @@
-﻿from fastapi.testclient import TestClient
+from fastapi.testclient import TestClient
 
 from rag_ingest import api
 from rag_ingest.models import RagAnswer, RetrievedChunk
@@ -45,7 +45,7 @@ def test_non_streaming_chat_includes_sources(monkeypatch) -> None:
     assert "Resposta fundamentada." in content
     assert "Fontes:" in content
     assert "Certificação CCMP.pdf" in content
-    assert "Coleção: associacoes" in content
+    assert "Colecao: associacoes" in content
     assert "associacoes/ACMP/Certificação CCMP.pdf" in content
 
 
@@ -65,7 +65,7 @@ def test_streaming_chat_includes_sources(monkeypatch) -> None:
     assert response.status_code == 200
     assert "Fontes:" in response.text
     assert "Certificação CCMP.pdf" in response.text
-    assert "Coleção: associacoes" in response.text
+    assert "Colecao: associacoes" in response.text
     assert response.text.endswith("data: [DONE]\n\n")
 
 
