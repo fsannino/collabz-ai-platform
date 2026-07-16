@@ -8,6 +8,7 @@ import unicodedata
 from collections import defaultdict
 
 from rag_ingest.models import RetrievedChunk
+from rag_ingest.source_quality import SourceQualityPolicy
 
 
 _STOPWORDS = {
@@ -45,6 +46,7 @@ class DiversityReranker:
         max_distance: float | None = None,
         lexical_weight: float = 250.0,
         near_duplicate_threshold: float = 0.88,
+        source_quality_weight: float = 100.0,
     ) -> None:
         self.max_chunks_per_source = max(1, max_chunks_per_source)
         self.max_distance = max_distance
@@ -53,6 +55,8 @@ class DiversityReranker:
             1.0,
             max(0.0, near_duplicate_threshold),
         )
+        self.source_quality_weight = max(0.0, source_quality_weight)
+        self.source_quality = SourceQualityPolicy()
 
     def rank(
         self,
@@ -119,7 +123,7 @@ class DiversityReranker:
         query_terms: set[str],
         association_intent: bool,
     ) -> float:
-        """Menor é melhor: distância vetorial menos bônus lexical e de intenção."""
+        """Combina distância, relevância lexical, intenção e qualidade da fonte."""
         searchable = " ".join(
             [
                 chunk.document,
@@ -140,6 +144,10 @@ class DiversityReranker:
             else:
                 score += self.lexical_weight * 0.5
 
+        score += (
+            self.source_quality.penalty(chunk)
+            * self.source_quality_weight
+        )
         return score
 
     def _is_near_duplicate(
