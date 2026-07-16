@@ -6,7 +6,6 @@ import os
 from pathlib import Path
 
 import requests
-
 from rag_ingest.config import CollectionConfig, Settings, load_collections
 from rag_ingest.context_builder import ContextBuilder
 from rag_ingest.grounding import validate_listed_entities
@@ -15,6 +14,7 @@ from rag_ingest.models import RagAnswer
 from rag_ingest.prompt_manager import PromptManager
 from rag_ingest.query_rewriter import QueryRewriter
 from rag_ingest.reranker import DiversityReranker
+from rag_ingest.retrieval_policy import candidate_pool_size
 from rag_ingest.retriever import VectorRetriever
 
 
@@ -38,6 +38,15 @@ class RagAssistant:
         )
         self.max_context_characters = int(
             os.getenv("RAG_MAX_CONTEXT_CHARACTERS", "12000")
+        )
+        self.candidate_multiplier = int(
+            os.getenv("RAG_CANDIDATE_MULTIPLIER", "4")
+        )
+        self.min_candidates_per_collection = int(
+            os.getenv("RAG_MIN_CANDIDATES_PER_COLLECTION", "20")
+        )
+        self.max_candidates_per_collection = int(
+            os.getenv("RAG_MAX_CANDIDATES_PER_COLLECTION", "100")
         )
         raw_max_distance = os.getenv("RAG_MAX_DISTANCE", "").strip()
         self.max_distance = (
@@ -76,10 +85,17 @@ class RagAssistant:
     ) -> RagAnswer:
         selected = self._select_collections(collection_keys, use_all)
         retrieval_question = self._query_rewriter.rewrite(question)
+        candidates_per_collection = candidate_pool_size(
+            top_k=top_k,
+            per_collection=per_collection,
+            multiplier=self.candidate_multiplier,
+            minimum=self.min_candidates_per_collection,
+            maximum=self.max_candidates_per_collection,
+        )
         candidates = self._retriever.search(
             question=retrieval_question,
             collections=selected,
-            candidates_per_collection=max(per_collection, top_k),
+            candidates_per_collection=candidates_per_collection,
             metadata_filter=metadata_filter,
         )
         chunks = self._reranker.rank(
