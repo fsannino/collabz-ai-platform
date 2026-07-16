@@ -44,6 +44,9 @@ class RagAssistant:
             float(raw_max_distance) if raw_max_distance else None
         )
         lexical_weight = float(os.getenv("RAG_LEXICAL_WEIGHT", "250"))
+        source_quality_weight = float(
+            os.getenv("RAG_SOURCE_QUALITY_WEIGHT", "100")
+        )
         self.strict_grounding = os.getenv(
             "RAG_STRICT_GROUNDING", "true"
         ).strip().lower() in {"1", "true", "yes", "on"}
@@ -54,6 +57,7 @@ class RagAssistant:
             max_chunks_per_source=self.max_chunks_per_source,
             max_distance=self.max_distance,
             lexical_weight=lexical_weight,
+            source_quality_weight=source_quality_weight,
         )
         self._context_builder = ContextBuilder(
             max_characters=self.max_context_characters
