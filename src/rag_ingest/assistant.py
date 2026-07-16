@@ -9,13 +9,13 @@ import requests
 from rag_ingest.config import CollectionConfig, Settings, load_collections
 from rag_ingest.context_builder import ContextBuilder
 from rag_ingest.grounding import validate_listed_entities
+from rag_ingest.hybrid_retriever import HybridRetriever
 from rag_ingest.metadata_filter import MetadataFilter
 from rag_ingest.models import RagAnswer
 from rag_ingest.prompt_manager import PromptManager
 from rag_ingest.query_rewriter import QueryRewriter
 from rag_ingest.reranker import DiversityReranker
 from rag_ingest.retrieval_policy import candidate_pool_size
-from rag_ingest.retriever import VectorRetriever
 
 
 class RagAssistant:
@@ -56,11 +56,23 @@ class RagAssistant:
         source_quality_weight = float(
             os.getenv("RAG_SOURCE_QUALITY_WEIGHT", "100")
         )
+        hybrid_enabled = os.getenv(
+            "RAG_HYBRID_ENABLED", "true"
+        ).strip().lower() in {"1", "true", "yes", "on"}
+        lexical_index_path = os.getenv(
+            "LEXICAL_INDEX_PATH", ".indexes/lexical.sqlite3"
+        )
+        rrf_k = int(os.getenv("RAG_RRF_K", "60"))
         self.strict_grounding = os.getenv(
             "RAG_STRICT_GROUNDING", "true"
         ).strip().lower() in {"1", "true", "yes", "on"}
 
-        self._retriever = VectorRetriever(settings)
+        self._retriever = HybridRetriever(
+            settings,
+            lexical_index_path=lexical_index_path,
+            enabled=hybrid_enabled,
+            rrf_k=rrf_k,
+        )
         self._query_rewriter = QueryRewriter()
         self._reranker = DiversityReranker(
             max_chunks_per_source=self.max_chunks_per_source,
